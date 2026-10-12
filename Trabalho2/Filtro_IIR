@@ -1,0 +1,146 @@
+% Projeto PDS - Filtro IIR (Estabilizado para Octave)
+% Aluno : Mateus Macedo Nogueira
+clear;
+clc;
+close all;
+
+% Força o carregamento do pacote de sinais no Octave
+pkg load signal;
+
+% =================== Parametros gerais ===============================
+fs = 16000;         % frequencia de amostragem (Hz)
+f1 = 5800;          % frequencia do ruido 1 (Hz)
+f2 = 6100;          % frequencia do ruido 2 (Hz)
+delta2 = 0.000562;
+a1 = 0.4; a2 = 0.4; % amplitudes do ruido
+dur = 5;            % duracao da gravacao (s)
+
+% =================== 1) Projeto do filtro (DIRETO) ==================
+fp1 = 5600;         % Borda inferior da banda rejeitada (Hz)
+fp2 = 6300;         % Borda superior da banda rejeitada (Hz)
+Wn = [fp1 fp2] / (fs/2);    % Normalizacao (1 = Nyquist)
+N = 4; Rp = 1; Rs = 65;
+[b, a] = ellip(N, Rp, Rs, Wn, 'stop');
+
+% Verificacao de estabilidade
+if all(abs(roots(a)) < 1)
+disp('Filtro estavel.');
+else
+disp('AVISO: filtro INSTAVEL! Reduza a ordem ou alargue a banda.');
+end
+
+fprintf('--- Especificacoes do Filtro ---\n');
+fprintf('Atenuacao na banda de rejeicao = %d dB\n', Rs);
+fprintf('Ripple na banda de passagem    = %d dB\n', Rp);
+fprintf('Banda rejeitada = %d a %d Hz\n', fp1, fp2);
+fprintf('Ordem do filtro digital (2N)   = %d\n\n', length(a)-1);
+
+% =================== 2) Captura da voz v[n] =========================
+disp('Gravando... fale agora.');
+rec = audiorecorder(fs, 16, 1);
+recordblocking(rec, dur);
+disp('Gravacao concluida.');
+v = getaudiodata(rec);      % vetor coluna
+v = v(:).';                 % vetor linha
+v = v / max(abs(v));        % normaliza
+Lv = length(v);
+t = (0:Lv-1) / fs;
+
+% =================== 3) Ruido e sinal corrompido ====================
+r = a1*cos(2*pi*f1*t) + a2*cos(2*pi*f2*t);
+z = v + r;                  % z[n] = v[n] + r[n]
+
+% =================== 4) Filtragem (FASE ZERO) =======================
+% filtfilt aplica o filtro nos dois sentidos:
+%  - dobra a atenuacao efetiva (~130 dB nos tons)
+%  - elimina distorcao de fase e transiente inicial
+y = filtfilt(b, a, z);
+
+% --- Funcao auxiliar para linhas verticais (substitui xline) --------
+desenha_linha = @(xval, cor) line([xval xval], ylim(), ...
+'Color', cor, 'LineStyle', '--', 'LineWidth', 1.5);
+
+% =================== 5) Analises e Graficos =========================
+Nfft = 4096;
+[H, W] = freqz(b, a, Nfft, fs);     % frequencias em Hz
+
+% --- 5.1 Resposta em frequencia do filtro ---
+figure(1);
+subplot(2,1,1);
+plot(W, 20*log10(abs(H) + eps), 'b', 'LineWidth', 1.5);
+xlabel('Frequencia (Hz)'); ylabel('Magnitude (dB)');
+title('Resposta em Frequencia - Filtro Rejeita-Faixa');
+xlim([0 fs/2]); ylim([-90 5]); grid on;
+desenha_linha(f1, 'r');
+desenha_linha(f2, 'g');
+
+subplot(2,1,2);
+plot(W, angle(H)*180/pi, 'b', 'LineWidth', 1.5);
+xlabel('Frequencia (Hz)'); ylabel('Fase (graus)');
+title('Resposta em Fase do Filtro'); xlim([0 fs/2]); grid on;
+
+% --- 5.2 Sinais no tempo ---
+figure(2);
+subplot(3,1,1); plot(t, v, 'b'); title('Sinal de Voz Original (v)');
+xlabel('Tempo (s)'); ylabel('Amplitude'); grid on;
+subplot(3,1,2); plot(t, z, 'r'); title('Sinal com Ruido (z = v + r)');
+xlabel('Tempo (s)'); ylabel('Amplitude'); grid on;
+subplot(3,1,3); plot(t, y, 'g'); title('Sinal Filtrado (y)');
+xlabel('Tempo (s)'); ylabel('Amplitude'); grid on;
+
+% --- 5.3 Espectros (FFT) ---
+V = abs(fft(v, Nfft)) / Lv;
+Z = abs(fft(z, Nfft)) / Lv;
+Y = abs(fft(y, Nfft)) / Lv;
+fv = (0:Nfft-1) * fs / Nfft;
+idx = 1:Nfft/2;             % frequencias positivas
+
+figure(3);
+subplot(3,1,1); plot(fv(idx), 20*log10(V(idx) + eps), 'b');
+title('Espectro da Voz Original'); xlabel('Frequencia (Hz)');
+ylabel('dB'); xlim([0 fs/2]); grid on;
+
+subplot(3,1,2); plot(fv(idx), 20*log10(Z(idx) + eps), 'r');
+title('Espectro do Sinal com Ruido'); xlabel('Frequencia (Hz)');
+ylabel('dB'); xlim([0 fs/2]); grid on;
+desenha_linha(f1, 'k'); desenha_linha(f2, 'k');
+
+subplot(3,1,3); plot(fv(idx), 20*log10(Y(idx) + eps), 'g');
+title('Espectro do Sinal Filtrado'); xlabel('Frequencia (Hz)');
+ylabel('dB'); xlim([0 fs/2]); grid on;
+desenha_linha(f1, 'k'); desenha_linha(f2, 'k');
+
+% --- 5.4 Espectrograma ---
+win = 512; overlap = 256; Nfft_sg = 1024;
+figure(4);
+subplot(1,2,1);
+specgram(z, Nfft_sg, fs, hanning(win), overlap);
+title('Espectrograma - Sinal com Ruido');
+xlabel('Tempo (s)'); ylabel('Frequencia (Hz)'); colorbar;
+
+subplot(1,2,2);
+specgram(y, Nfft_sg, fs, hanning(win), overlap);
+title('Espectrograma - Sinal Filtrado');
+xlabel('Tempo (s)'); ylabel('Frequencia (Hz)'); colorbar;
+
+% =================== 6) Salvamento dos audios =======================
+% Normaliza cada sinal para o intervalo [-1, 1] antes de salvar
+v_norm = v / max(abs(v));                  % voz original
+z_norm = z / max(abs(z));                  % sinal corrompido
+y_norm = y / max(abs(y));                  % sinal filtrado
+
+audiowrite('voz_original.wav',     v_norm(:), fs);
+audiowrite('sinal_corrompido.wav', z_norm(:), fs);
+audiowrite('sinal_filtrado.wav',   y_norm(:), fs);
+
+disp('Audios salvos:');
+disp('  -> voz_original.wav');
+disp('  -> sinal_corrompido.wav');
+disp('  -> sinal_filtrado.wav');
+
+% =================== 7) Reproducao de audio =========================
+disp('Reproduzindo sinal com ruido...');
+sound(z, fs); pause(dur + 1);
+disp('Reproduzindo sinal filtrado...');
+sound(y, fs); pause(dur + 1);
+disp('Concluido.');
