@@ -1,0 +1,84 @@
+%Projeto PDS Parte 3
+%Aluno : Mateus Macedo Nogueira
+clear;
+clc;
+close all;
+
+% =================== Parametros gerais ===============================
+fs = 16000;              % frequencia de amostragem (Hz) - igual a da Parte 1
+f1 = 5800;  f2 = 6100;   % frequencias do ruido (Hz)
+a1 = 0.4;   a2 = 0.4;    % amplitudes do ruido
+dur = 3;                 % duracao da gravacao (s)
+
+% =================== 1) Reconstrucao do filtro (Parte 1) =============
+M = 276; N = 277; alpha = 138;     % ordem, num. coef., atraso de grupo
+wc1 = 0.59625*pi;  wc2 = 0.89687*pi;
+n = 0:M;  m = n - alpha;
+hd = zeros(1,N);
+idx = (m ~= 0);
+hd(idx)  = -( sin(wc2*m(idx)) - sin(wc1*m(idx)) ) ./ (pi*m(idx));
+hd(~idx) =  1 - (wc2 - wc1)/pi;
+w = 0.42 - 0.5*cos(2*pi*n/M) + 0.08*cos(4*pi*n/M);   % janela de Blackman
+h = hd .* w;                                          % resposta ao impulso
+
+% =================== 2) Captura da voz v[n] ==========================
+% Em Octave pode ser necessario: pkg load signal; pkg load audio;
+disp('Gravando... fale agora.');
+rec = audiorecorder(fs, 16, 1);
+recordblocking(rec, dur);
+disp('Gravacao concluida.');
+v = getaudiodata(rec);          % vetor coluna
+v = v(:).';                     % vetor linha
+v = v / max(abs(v));            % normaliza
+Lv = length(v);
+t  = (0:Lv-1)/fs;
+
+% =================== 3) Ruido e sinal corrompido =====================
+r = a1*cos(2*pi*f1*t) + a2*cos(2*pi*f2*t);
+z = v + r;                      % z[n] = v[n] + r[n]
+
+% =================== 4) Filtragem ====================================
+y = filter(h, 1, z);            % aplica o FIR
+
+% =================== 5) Espectros (fft + fftshift) ===================
+spec = @(x) abs(fftshift(fft(x)))/length(x);
+fax  = @(x) (-floor(length(x)/2):ceil(length(x)/2)-1)*fs/length(x);
+
+% --- Figura 1: v, z, y no tempo e na frequencia ---
+figure('Name','Sinais v[n], z[n], y[n]');
+sig = {v, z, y};
+nome = {'v[n] (voz original)', 'z[n] = v[n] + r[n]', 'y[n] (filtrado)'};
+for i = 1:3
+  subplot(3,2,2*i-1);
+  plot(t, sig{i}); grid on; xlabel('t (s)'); ylabel('amplitude');
+  title([nome{i} ' - tempo']);
+  subplot(3,2,2*i);
+  plot(fax(sig{i}), spec(sig{i})); grid on; xlim([0 fs/2]);
+  xlabel('f (Hz)'); ylabel('magnitude');
+  title([nome{i} ' - frequencia']);
+end
+
+% =================== 6) Resposta do filtro ===========================
+% --- Figura 2: resposta ao impulso ---
+figure('Name','Resposta ao impulso');
+stem(n, h, 'filled', 'MarkerSize', 2); grid on;
+xlabel('n'); ylabel('h[n]'); title('Resposta ao Impulso');
+
+% --- Figura 3: resposta em frequencia (magnitude e fase) via freqz ---
+[Hf, wf] = freqz(h, 1, 8192);
+figure('Name','Resposta em frequencia');
+
+subplot(2,1,1);
+plot(wf/pi, 20*log10(abs(Hf))); grid on; ylim([-150 10]); xlim([0 1]);
+xlabel('\omega/\pi'); ylabel('|H(e^{j\omega})| (dB)');
+title('Resposta em magnitude');
+subplot(2,1,2);
+plot(wf/pi, unwrap(angle(Hf))); grid on; xlim([0 1]);
+xlabel('\omega/\pi'); ylabel('\angle H(e^{j\omega}) (rad)');
+title('Resposta de fase');
+
+% =================== 7) Salva os WAV =================================
+audiowrite('voz_original.wav', v/max(abs(v))*0.95, fs);   % antes do ruido
+audiowrite('voz_ruidosa.wav',  z/max(abs(z))*0.95, fs);   % z[n] = v[n] + r[n]
+audiowrite('voz_filtrada.wav', y/max(abs(y))*0.95, fs);   % y[n]
+disp('Arquivos salvos: voz_original.wav, voz_ruidosa.wav e voz_filtrada.wav');
