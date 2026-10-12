@@ -1,0 +1,67 @@
+% Projeto PDS - DFT Passo 1 - Validação do Overlap-Add (Sobreposição e Soma)
+% Aluno : Mateus Macedo Nogueira
+clear;
+clc;
+close all;
+
+% Força o carregamento do pacote de sinais no Octave
+pkg load signal;
+
+% PASSO 1 - VALIDACAO DO ALGORITMO OVERLAP-SAVE COM SINAIS ALEATORIOS
+printf('--- PASSO 1: validacao do overlap-save com sinais aleatorios ---\n');
+
+N_fft = 1024;                 % numero de pontos da FFT (512 ou 1024)
+M_teste = 151;                % comprimento do filtro de teste (~150 amostras)
+L_teste = N_fft - M_teste + 1;
+
+% comprimento do sinal de entrada de teste ~ 15.3*L, garantindo que NAO
+% seja multiplo de L (conforme exigido no enunciado)
+Nx_teste = round(15.3*L_teste);
+if mod(Nx_teste, L_teste) == 0
+    Nx_teste = Nx_teste + 1;
+end
+
+randn('seed', 0);
+x_teste = randn(1, Nx_teste);
+h_teste = randn(1, M_teste);
+
+% Overlap-Save embutido diretamente aqui (sem usar funcao externa)
+M_ov = length(h_teste);
+L_ov = N_fft - M_ov + 1;
+H_ov = fft(h_teste, N_fft);
+x_pad_ov = [zeros(1, M_ov-1), x_teste];
+num_blocos_ov = ceil(length(x_pad_ov) / L_ov);
+comp_total_ov = num_blocos_ov*L_ov + (M_ov-1);
+if comp_total_ov > length(x_pad_ov)
+    x_pad_ov = [x_pad_ov, zeros(1, comp_total_ov - length(x_pad_ov))];
+end
+y_blocos_ov = zeros(1, num_blocos_ov*L_ov);
+for k = 0:num_blocos_ov-1
+    ini_ov = k*L_ov + 1;
+    bloco_ov = x_pad_ov(ini_ov : ini_ov + N_fft - 1);
+    X_ov = fft(bloco_ov, N_fft);
+    Y_ov = real(ifft(X_ov .* H_ov));
+    y_blocos_ov(k*L_ov + (1:L_ov)) = Y_ov(M_ov:N_fft);
+end
+y_overlap = y_blocos_ov(1:(length(x_teste)+M_ov-1));
+
+y_conv    = conv(x_teste, h_teste);
+
+erro_max = max(abs(y_overlap - y_conv));
+printf('N (FFT) = %d | M = %d | L = %d | comprimento de x = %d (nao multiplo de L)\n', ...
+        N_fft, M_teste, L_teste, Nx_teste);
+printf('Erro maximo |overlap-save - conv| = %.3e\n', erro_max);
+if erro_max < 1e-9
+    printf('==> Algoritmo de Overlap-Save VALIDADO com sucesso.\n\n');
+else
+    printf('==> ATENCAO: erro maior que o esperado, revisar implementacao.\n\n');
+end
+
+figure('Name','Passo 1 - Validacao Overlap-Save');
+subplot(3,1,1); plot(y_conv); title('Convolucao direta (conv)'); grid on;
+subplot(3,1,2); plot(y_overlap,'r');  title('Convolucao via Overlap-Save'); grid on;
+subplot(3,1,3); plot(y_overlap - y_conv,'g'); title('Erro (diferenca)'); grid on;
+xlabel('amostra');
+
+print(gcf, fullfile(pasta_saida, 'fig2_passo1_validacao_overlap_save.png'), '-dpng', '-r150');
+
