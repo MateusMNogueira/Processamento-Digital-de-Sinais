@@ -1,0 +1,37 @@
+%%  CONVOLUÇÃO DA SOMA - Processamento Digital de Sinais
+
+%% a) Resposta ao impulso
+fprintf('\nCarregando resposta ao impulso\n');
+[impulso_stereo, fs] = audioread('Church Schellingwoude.wav');
+impulso = impulso_stereo(:, 1);
+
+%% b) Amostra de voz
+fprintf('\nCapturando amostra de voz\n');
+gravador = audiorecorder(fs, 16, 1);
+disp('Pressione ENTER para iniciar a gravação...');
+pause;
+disp('Gravando... Fale agora!');
+recordblocking(gravador, 5);
+disp('Gravação finalizada.');
+voz = getaudiodata(gravador);
+
+%% c) Convolução
+fprintf('\nConvoluindo voz com resposta ao impulso\n');
+resultado = conv(voz, impulso);
+
+%% Normalização da potência (RMS)
+fprintf('\nNormalizando potência (RMS)\n');
+rms_voz = sqrt(mean(voz.^2));
+rms_resultado = sqrt(mean(resultado.^2));
+resultado = resultado * (rms_voz / rms_resultado);
+
+% Proteção contra clipagem: limita ao intervalo [-1, 1]
+fprintf('\nProteção contra clipagem\n');
+if max(abs(resultado)) > 1.0
+    resultado = resultado / max(abs(resultado));
+end
+
+%% d) Salvar resultado
+fprintf('\nSalvando arquivos de áudio\n');
+audiowrite('voz_original.wav', voz, fs);
+audiowrite('resultado_convolucao.wav', resultado, fs);
