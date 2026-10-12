@@ -1,0 +1,115 @@
+% Aluno : Mateus Macedo Nogueira
+% Projeto DFT - Passo 2: Filtragem de Voz via Overlap-Add
+pkg load signal;
+clc; clear; close all;
+
+disp('--- PASSO 2: FILTRAGEM COM OVERLAP-ADD ---');
+
+%% 1. Resgatando o Filtro IIR (Projeto Anterior)
+Fs = 16000;
+f1 = 5800;          % frequência do ruído 1 (5.8 kHz)
+f2 = 6100;          % frequência do ruído 2 (6.1 kHz)
+delta2 = 0.000562;  % ripple linear na banda de rejeição
+
+fp1 = 5600;         % Borda inferior da banda rejeitada (Hz)
+fp2 = 6300;         % Borda superior da banda rejeitada (Hz)
+Wn = [fp1 fp2] / (Fs/2);    % Normalização (1 = Nyquist)
+N_ordem = 4;
+Rp = 1;
+Rs = -20 * log10(delta2);   % Conversão de delta2 para dB (~65 dB)
+
+disp('Gerando os coeficientes do filtro Elíptico Rejeita-Faixa...');
+[b, a] = ellip(N_ordem, Rp, Rs, Wn, 'stop');
+
+% Obtém a resposta ao impulso do filtro IIR para usar no Overlap-Add
+M_filtro = 150;
+h = impz(b, a, M_filtro);
+h = h(:); % Garante que seja um vetor coluna
+
+%% 2. Configurações do Overlap-Add
+N = 1024;
+M = length(h);
+L = N - M + 1;
+disp(['Parâmetros: N = ', num2str(N), ', M = ', num2str(M), ', L = ', num2str(L)]);
+
+%% 3. Captura da Voz (10 Segundos)
+tempo_rec = 10;
+disp(['Pressione [ENTER] para gravar sua voz por ', num2str(tempo_rec), ' segundos...']);
+input('');
+disp('>> GRAVANDO... Fale agora! <<');
+gravador = audiorecorder(Fs, 16, 1);
+recordblocking(gravador, tempo_rec);
+disp('>> GRAVAÇÃO CONCLUÍDA <<');
+
+v = getaudiodata(gravador);
+v = v(:); % Garante vetor coluna
+v = v / max(abs(v)); % Normaliza a entrada
+tam_entrada = length(v);
+t = (0:tam_entrada-1)' / Fs;
+
+%% 4. Adicionando o Ruído
+disp('Injetando os ruídos senoidais (5.8 kHz e 6.1 kHz)...');
+a1 = 0.4; a2 = 0.4;
+r = a1*cos(2*pi*f1*t) + a2*cos(2*pi*f2*t);
+z = v + r; % Sinal corrompido
+
+%% 5. Processamento via Overlap-Add (Substituindo a função "filter")
+disp('Filtrando o áudio via DFT (Overlap-Add)...');
+
+H = fft(h, N);
+tamanho_y = tam_entrada + M - 1;
+y_ola = zeros(tamanho_y, 1);
+num_blocos = ceil(tam_entrada / L);
+
+for k = 1:num_blocos
+    inicio = (k - 1) * L + 1;
+    fim = min(k * L, tam_entrada);
+
+    bloco = z(inicio:fim);
+
+    % FFT do bloco, multiplicação e IFFT
+    X_bloco = fft(bloco, N);
+    Y_bloco = X_bloco .* H;
+    y_parcial = real(ifft(Y_bloco));
+    y_parcial = y_parcial(:); % Proteção contra erro de dimensões no Octave
+
+    % Sobreposição e Soma
+    idx_saida_inicio = inicio;
+    idx_saida_fim = inicio + N - 1;
+
+    if idx_saida_fim > tamanho_y
+        y_parcial = y_parcial(1:(tamanho_y - idx_saida_inicio + 1));
+        idx_saida_fim = tamanho_y;
+    end
+
+    y_ola(idx_saida_inicio:idx_saida_fim) = y_ola(idx_saida_inicio:idx_saida_fim) + y_parcial;
+end
+
+% Corta o finalzinho extra gerado pela convolução para ficar com o tamanho original
+y_final = y_ola(1:tam_entrada);
+
+%% 6. Exportação dos Arquivos WAV
+audiowrite('voz_original.wav', v, Fs);
+audiowrite('voz_filtrada.wav', y_final, Fs);
+disp('Arquivos WAV salvos!');
+
+%% 7. Gráficos para o Relatório
+disp('Gerando gráficos no Tempo e na Frequência...');
+figure('Name', 'Sinais (Overlap-Add)', 'NumberTitle', 'off');
+
+f_eixo = linspace(-Fs/2, Fs/2, tam_entrada);
+calc_espectro = @(sinal) 20*log10(abs(fftshift(fft(sinal)))/tam_entrada + eps);
+
+% Sinal Original v[n]
+subplot(3, 2, 1); plot(t, v); title('Voz Original v[n] (Tempo)'); xlabel('Tempo (s)'); grid on;
+subplot(3, 2, 2); plot(f_eixo, calc_espectro(v)); title('Espectro Original (Freq)'); xlabel('Frequência (Hz)'); xlim([0 Fs/2]); grid on;
+
+% Sinal Corrompido z[n]
+subplot(3, 2, 3); plot(t, z, 'r'); title('Sinal Corrompido z[n] (Tempo)'); xlabel('Tempo (s)'); grid on;
+subplot(3, 2, 4); plot(f_eixo, calc_espectro(z), 'r'); title('Espectro Corrompido (Freq)'); xlabel('Frequência (Hz)'); xlim([0 Fs/2]); grid on;
+
+% Sinal Filtrado y[n]
+subplot(3, 2, 5); plot(t, y_final, 'g'); title('Sinal Filtrado (Overlap-Add) (Tempo)'); xlabel('Tempo (s)'); grid on;
+subplot(3, 2, 6); plot(f_eixo, calc_espectro(y_final), 'g'); title('Espectro Filtrado (Freq)'); xlabel('Frequência (Hz)'); xlim([0 Fs/2]); grid on;
+
+disp('--- Processo finalizado com sucesso! ---');
