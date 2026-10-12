@@ -1,0 +1,71 @@
+% Projeto_Filtro_pt2
+% Aluno: Mateus Macedo Nogueira
+clear;
+clc;
+close all;
+
+% -------------------- Parametros da Parte 1 -------------------------
+fs    = 16000;            % frequencia de amostragem (Hz)
+M     = 276;             % ordem do filtro
+N     = 277;           % numero de coeficientes
+alpha = 138;             % atraso
+wc1   = 0.59625*pi;      % frequencia de corte inferior
+wc2   = 0.89687*pi;      % frequencia de corte superior
+
+n = 0:M;
+m = n - alpha;
+
+% -------------------- Resposta ao impulso ideal ---------------------
+% Rejeita-faixa:  hd[n] = delta[n-alpha] - h_passa-faixa[n]
+hd = zeros(1, N);
+idx = (m ~= 0); %valor verdaddeiro para qualquer valor diferente de 0
+hd(idx)  = -( sin(wc2*m(idx)) - sin(wc1*m(idx)) ) ./ (pi*m(idx)); %equação de um filtro rejeita-faixa
+hd(~idx) =  1 - (wc2 - wc1)/pi;          % valor em n = alpha
+
+% -------------------- Janela de Blackman ----------------------------
+w = 0.42 - 0.5*cos(2*pi*n/M) + 0.08*cos(4*pi*n/M);
+
+% -------------------- Filtro final ----------------------------------
+h = hd .* w;
+
+% -------------------- Resposta em frequencia (TFTD via FFT) ---------
+Nfft  = 8192;
+H     = fft(h, Nfft);
+k     = 0:Nfft-1;
+wfull = 2*pi*k/Nfft;          % 0 .. 2pi
+half  = 1:Nfft/2;             % apenas 0 .. pi
+wpi   = wfull(half)/pi;       % eixo em unidades de pi
+mag   = abs(H(half));
+magdB = 20*log10(mag + 1e-12);
+fase  = unwrap(angle(H(half)));
+
+% ===================================================================
+% GRAFICO 1 - Resposta ao impulso
+% ===================================================================
+figure;
+stem(n, h, 'filled', 'MarkerSize', 2);
+xlabel('n (amostras)'); ylabel('h[n]');
+title('Resposta ao impulso');
+grid on; xlim([-2 N+1]);
+
+% ===================================================================
+% GRAFICO 2 - Resposta em magnitude
+% ===================================================================
+figure;
+subplot(2,1,1);
+plot(wpi, mag); grid on; xlim([0 1]);
+xlabel('\omega/\pi'); ylabel('|H(e^{j\omega})|');
+title('Resposta em magnitude');
+
+subplot(2,1,2);
+plot(wpi, magdB); grid on; xlim([0 1]); ylim([-150 10]);
+xlabel('\omega/\pi'); ylabel('|H(e^{j\omega})| (dB)');
+title('Resposta em magnitude (dB)');
+
+% ===================================================================
+% GRAFICO 3 - Resposta de fase
+% ===================================================================
+figure;
+plot(wpi, fase); grid on; xlim([0 1]);
+xlabel('\omega/\pi'); ylabel('\angle H(e^{j\omega}) (rad)');
+title('Resposta de fase');
